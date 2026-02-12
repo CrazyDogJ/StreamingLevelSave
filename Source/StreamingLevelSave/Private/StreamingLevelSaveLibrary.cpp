@@ -76,6 +76,9 @@ bool UStreamingLevelSaveLibrary::IsSaveInterfaceObject(const UObject* Object, FG
 
 	if (Object->Implements<UStreamingLevelSaveInterface>())
 	{
+		// Ignore check if is runtime object.
+		if (IsRuntimeObject(Object)) return true;
+		// Check id if not runtime object.
 		OutId = IStreamingLevelSaveInterface::Execute_GetIdentityGuid(Object);
 		return OutId.IsValid();
 	}

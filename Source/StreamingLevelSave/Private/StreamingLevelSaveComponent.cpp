@@ -21,9 +21,9 @@ SUBSYSTEM* UStreamingLevelSaveComponent::GetSubsystem() const
 
 void UStreamingLevelSaveComponent::BeginPlay()
 {
-	if (LIBRARY::IsRuntimeObject(this))
+	if (LIBRARY::IsRuntimeObject(this) && GetOwner()->HasAuthority())
 	{
-		GetSubsystem()->RuntimeActorComponents.Add(this);
+		GetSubsystem()->RuntimeActorComponents.FindOrAdd(this);
 	}
 	
 	Super::BeginPlay();
@@ -34,6 +34,11 @@ void UStreamingLevelSaveComponent::TickComponent(float DeltaTime, enum ELevelTic
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+	if (!GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	
 	FGuid Id;
 	if (LIBRARY::IsSaveInterfaceObject(GetOwner(), Id) &&
 		bTickCheckCell && GetOwner()->GetVelocity().Length() > VelocityThreshold)
@@ -54,7 +59,7 @@ void UStreamingLevelSaveComponent::TickComponent(float DeltaTime, enum ELevelTic
 
 void UStreamingLevelSaveComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	if (LIBRARY::IsRuntimeObject(this))
+	if (LIBRARY::IsRuntimeObject(this) && GetOwner()->HasAuthority())
 	{
 		GetSubsystem()->RuntimeActorComponents.Remove(this);
 	}

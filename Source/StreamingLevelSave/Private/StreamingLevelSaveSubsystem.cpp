@@ -1,7 +1,6 @@
 ﻿#include "StreamingLevelSaveSubsystem.h"
 
 #include "ImageUtils.h"
-#include "StreamingLevelSave.h"
 #include "StreamingLevelSaveComponent.h"
 #include "StreamingLevelSaveInterface.h"
 #include "StreamingLevelSaveLibrary.h"
@@ -447,7 +446,8 @@ void UStreamingLevelSaveSubsystem::OnScreenshotCaptured(int32 Width, int32 Heigh
 
 void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& String)
 {
-	if (!WorldContext.World()->GetWorldPartition())
+	// Only work in world partition world and authority mode.
+	if (!WorldContext.World()->GetWorldPartition() && WorldContext.World()->GetNetMode() != NM_Client)
 	{
 		SaveLevelInternal(WorldContext.World()->GetCurrentLevel(), false, true);
 	}
@@ -455,7 +455,8 @@ void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& Wo
 
 void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 {
-	if (!World->GetWorldPartition())
+	// Only work in world partition world and authority mode.
+	if (!World->GetWorldPartition() && World->GetNetMode() != NM_Client)
 	{
 		LoadLevelInternal(World->GetCurrentLevel());
 	}
@@ -464,13 +465,21 @@ void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 void UStreamingLevelSaveSubsystem::OnLevelBeginMakingVisible(UWorld* World, const ULevelStreaming* LevelStreaming,
                                                              ULevel* Level)
 {
-	VisibleStreamingLevels.Add(LevelStreaming);
-	LoadLevelInternal(LevelStreaming->GetLoadedLevel());
+	// Only work in authority mode.
+	if (World && World->GetNetMode() != NM_Client)
+	{
+		VisibleStreamingLevels.Add(LevelStreaming);
+		LoadLevelInternal(LevelStreaming->GetLoadedLevel());
+	}
 }
 
 void UStreamingLevelSaveSubsystem::OnLevelBeginMakingInvisible(UWorld* World, const ULevelStreaming* LevelStreaming,
 	ULevel* Level)
 {
-	VisibleStreamingLevels.Remove(LevelStreaming);
-	SaveLevelInternal(LevelStreaming->GetLoadedLevel(), false, true);
+	// Only work in authority mode.
+	if (World && World->GetNetMode() != NM_Client)
+	{
+		VisibleStreamingLevels.Remove(LevelStreaming);
+		SaveLevelInternal(LevelStreaming->GetLoadedLevel(), false, true);
+	}
 }
