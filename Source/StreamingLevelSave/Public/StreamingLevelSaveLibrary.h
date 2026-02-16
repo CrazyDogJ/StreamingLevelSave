@@ -61,4 +61,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save|Interface")
 	static ULevel* GetAssociateLevelInternal(UObject* Object);
 	// Interface ============
+
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save|Save Game")
+	static FString GetUniqueNetIdString(const FUniqueNetIdRepl& NetId);
+
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save|Save Game")
+	static bool IsDirectoryExistInSaveGame(FString DirectoryName);
 };

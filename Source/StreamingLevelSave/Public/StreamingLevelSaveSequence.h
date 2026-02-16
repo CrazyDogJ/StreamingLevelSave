@@ -41,12 +41,15 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Streaming Level Save")
 	void BeginLoad();
 
-protected:
-	UPROPERTY()
-	UWorld* World = nullptr;
+	UFUNCTION(BlueprintNativeEvent, Category = "Streaming Level Save")
+	bool CheckSaveFileNameValid(const FString& SlotName) const;
 
 	void CopyTempFilesToSavePath() const;
 	void CopySaveFilesToTempPath() const;
+	
+protected:
+	UPROPERTY()
+	UWorld* World = nullptr;
 	
 #if WITH_EDITOR
 	virtual bool ImplementsGetWorld() const override { return true; }

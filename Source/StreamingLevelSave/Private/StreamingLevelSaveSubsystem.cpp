@@ -7,7 +7,6 @@
 #include "StreamingLevelSaveSequence.h"
 #include "StreamingLevelSaveSettings.h"
 #include "Kismet/GameplayStatics.h"
-#include "Streaming/LevelStreamingDelegates.h"
 
 #define LIBRARY UStreamingLevelSaveLibrary
 #define SETTINGS UStreamingLevelSaveSettings
@@ -34,7 +33,7 @@ FStreamingLevelSaveData* UStreamingLevelSaveSubsystem::GetOrAddTempCellSaveData(
 	return GetOrAddCellSaveData(CellName, TempSaveDatas);
 }
 
-void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, bool bSaving)
+void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, TSoftObjectPtr<UWorld> LoadOpenLevel, bool bSaving)
 {
 	if (!SaveLoadSequence)
 	{
@@ -48,17 +47,38 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, b
 		}
 		
 		SaveLoadSequence = UStreamingLevelSaveSequence::NewSaveLoadSequence(GetWorld(), SaveFileName, bSaving);
+		// Call level saving and loading at begin.
+		if (SaveLoadSequence->bSaving)
+		{
+			SaveLoadSequence->CopyTempFilesToSavePath();
+			SaveLoadSequence->BeginSave();
+		}
+		else
+		{
+			// Set current save slot name.
+			const FName LevelName = FName(*FPackageName::ObjectPathToPackageName(LoadOpenLevel.ToString()));
+			if (SaveLoadSequence->CheckSaveFileNameValid(SaveFileName) && LevelName.IsValid())
+			{
+				SetCurrentSaveSlotName(SaveFileName);
+				bOpeningLevel = true;
+				SaveLoadSequence->CopySaveFilesToTempPath();
+				UGameplayStatics::OpenLevelBySoftObjectPtr(GetWorld(), LoadOpenLevel);
+				SaveLoadSequence->BeginLoad();
+			}
+			else
+			{
+				// If save file is not valid, end load right now.
+				EndSaveLoadSequence();
+			}
+		}
 	}
 }
 
-void UStreamingLevelSaveSubsystem::EndSaveLoadSequence(bool bSaving)
+void UStreamingLevelSaveSubsystem::EndSaveLoadSequence()
 {
 	if (SaveLoadSequence)
 	{
-		SaveLoadSequence->ConditionalBeginDestroy();
-		SaveLoadSequence = nullptr;
-
-		if (bSaving)
+		if (SaveLoadSequence->bSaving)
 		{
 			OnSaveComplete.Broadcast();
 		}
@@ -66,6 +86,9 @@ void UStreamingLevelSaveSubsystem::EndSaveLoadSequence(bool bSaving)
 		{
 			OnLoadComplete.Broadcast();
 		}
+
+		SaveLoadSequence->ConditionalBeginDestroy();
+		SaveLoadSequence = nullptr;
 	}
 }
 
@@ -91,16 +114,46 @@ bool UStreamingLevelSaveSubsystem::IsLoading() const
 
 TArray<FString> UStreamingLevelSaveSubsystem::CollectTempSaveFiles()
 {
+	// Save levels.
 	for (const auto Level : VisibleStreamingLevels)
 	{
 		// TODO : Not async here, may cause performance issue.
-		SaveLevelInternal(Level->GetLoadedLevel(), true, false);
+		SaveLevelInternal(Level, true, false);
 	}
 	
 	TArray<FString> TempFiles;
 	IFileManager::Get().FindFiles(TempFiles, *LIBRARY::GetTempFileFolder());
 
 	return TempFiles;
+}
+
+TArray<FString> UStreamingLevelSaveSubsystem::FindMetaDataFiles(FString MetaDataFileName)
+{
+	TArray<FString> Result;
+	const FString SaveGamesDir = FPaths::ProjectSavedDir() / TEXT("SaveGames");
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	
+	if (!PlatformFile.DirectoryExists(*SaveGamesDir))
+	{
+		return Result;
+	}
+	
+	TArray<FString> TempFiles;
+	IFileManager::Get().FindFilesRecursive(TempFiles, *SaveGamesDir, *MetaDataFileName, true, false);
+	for (const auto Itr : TempFiles)
+	{
+		// Relative to save games folder.
+		FString RelativePath = Itr;
+		FPaths::MakePathRelativeTo(RelativePath, *SaveGamesDir);
+		// Remove extension and "SaveGames/".
+		RelativePath = FPaths::GetBaseFilename(RelativePath, false);
+		FString RightSplit;
+		RelativePath.Split("SaveGames/", nullptr, &RightSplit);
+		// Finish
+		Result.Add(RightSplit);
+	}
+
+	return Result;
 }
 
 void UStreamingLevelSaveSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -169,20 +222,26 @@ void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool b
 		{
 			// Async
 			auto CachedData = *Found;
-			UE::Tasks::Launch(UE_SOURCE_LOCATION, [this, Level, CachedData, StreamingLevelName]()
+			UE::Tasks::Launch(UE_SOURCE_LOCATION, [this, Level, CachedData, StreamingLevelName, bOnlyCollect]()
 			{
 				SaveTempData(StreamingLevelName, CachedData);
-				AsyncTask(ENamedThreads::GameThread, [StreamingLevelName, Level, this]()
+				if (!bOnlyCollect)
 				{
-					TempSaveDatas.Remove(StreamingLevelName);
-				});
+					AsyncTask(ENamedThreads::GameThread, [StreamingLevelName, Level, this]()
+					{
+						TempSaveDatas.Remove(StreamingLevelName);
+					});
+				}
 			});
 		}
 		else
 		{
 			// Sync
 			SaveTempData(StreamingLevelName, *Found);
-			TempSaveDatas.Remove(StreamingLevelName);
+			if (!bOnlyCollect)
+			{
+				TempSaveDatas.Remove(StreamingLevelName);
+			}
 		}
 	}
 }
@@ -194,8 +253,10 @@ void UStreamingLevelSaveSubsystem::LoadLevelInternal(const ULevel* Level)
 	UE::Tasks::Launch(UE_SOURCE_LOCATION,
 	[this, StreamingLevelName, Level]()
 	{
-		FStreamingLevelSaveData LoadedData;
-		LoadTempData(StreamingLevelName, LoadedData);
+		// Write to temp data.
+		const auto Ptr = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level));
+		LoadTempData(StreamingLevelName, *Ptr);
+		const auto LoadedData = *Ptr;
 		
 		// Main thread task.
 		AsyncTask(ENamedThreads::GameThread, [LoadedData, Level, this]()
@@ -298,7 +359,7 @@ void UStreamingLevelSaveSubsystem::RestorePersistentActors(const ULevel* Level, 
 		if (LIBRARY::IsSaveInterfaceObject(Itr, Id))
 		{
 			// Destroy state.
-			if (SaveData->DestroyedActors.Find(Id))
+			if (SaveData->DestroyedActors.Find(Id) >= 0)
 			{
 				Itr->Destroy(true);
 			}
@@ -389,20 +450,20 @@ void UStreamingLevelSaveSubsystem::ClearAllTempFiles()
 
 void UStreamingLevelSaveSubsystem::AssignDelegates()
 {
-	FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(this, &ThisClass::PreLoadMapWithContext);
 	FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &ThisClass::PostLoadMapWithWorld);
+	FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(this, &ThisClass::PreLoadMapWithContext);
 	
-	FLevelStreamingDelegates::OnLevelBeginMakingVisible.AddUObject(this, &ThisClass::OnLevelBeginMakingVisible);
-	FLevelStreamingDelegates::OnLevelBeginMakingInvisible.AddUObject(this, &ThisClass::OnLevelBeginMakingInvisible);
+	FWorldDelegates::LevelAddedToWorld.AddUObject(this, &ThisClass::LevelAddedToWorld);
+	FWorldDelegates::PreLevelRemovedFromWorld.AddUObject(this, &ThisClass::PreLevelRemovedFromWorld);
 }
 
 void UStreamingLevelSaveSubsystem::RemoveDelegates()
 {
-	FCoreUObjectDelegates::PreLoadMapWithContext.RemoveAll(this);
 	FCoreUObjectDelegates::PostLoadMapWithWorld.RemoveAll(this);
+	FCoreUObjectDelegates::PreLoadMapWithContext.RemoveAll(this);
 	
-	FLevelStreamingDelegates::OnLevelBeginMakingVisible.RemoveAll(this);
-	FLevelStreamingDelegates::OnLevelBeginMakingInvisible.RemoveAll(this);
+	FWorldDelegates::LevelAddedToWorld.RemoveAll(this);
+	FWorldDelegates::PreLevelRemovedFromWorld.RemoveAll(this);
 }
 
 void UStreamingLevelSaveSubsystem::TakeScreenshot()
@@ -444,42 +505,49 @@ void UStreamingLevelSaveSubsystem::OnScreenshotCaptured(int32 Width, int32 Heigh
 	ScreenShotCaptured.Broadcast(FSaveGameScreenshotData(PngData));
 }
 
-void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& String)
-{
-	// Only work in world partition world and authority mode.
-	if (!WorldContext.World()->GetWorldPartition() && WorldContext.World()->GetNetMode() != NM_Client)
-	{
-		SaveLevelInternal(WorldContext.World()->GetCurrentLevel(), false, true);
-	}
-}
-
 void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 {
-	// Only work in world partition world and authority mode.
+	// Reset opening level to false.
+	bOpeningLevel = false;
+	
 	if (!World->GetWorldPartition() && World->GetNetMode() != NM_Client)
 	{
-		LoadLevelInternal(World->GetCurrentLevel());
+		VisibleStreamingLevels.Add(World->PersistentLevel);
+		LoadLevelInternal(World->PersistentLevel);
 	}
 }
 
-void UStreamingLevelSaveSubsystem::OnLevelBeginMakingVisible(UWorld* World, const ULevelStreaming* LevelStreaming,
-                                                             ULevel* Level)
+void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& String)
 {
-	// Only work in authority mode.
-	if (World && World->GetNetMode() != NM_Client)
+	if (!WorldContext.World()->GetWorldPartition() && WorldContext.World()->GetNetMode() != NM_Client)
 	{
-		VisibleStreamingLevels.Add(LevelStreaming);
-		LoadLevelInternal(LevelStreaming->GetLoadedLevel());
+		// Do not save files because now is loading files and opening new level.
+		if (!bOpeningLevel)
+		{
+			VisibleStreamingLevels.Remove(WorldContext.World()->PersistentLevel);
+			SaveLevelInternal(WorldContext.World()->PersistentLevel, false, true);
+		}
 	}
 }
 
-void UStreamingLevelSaveSubsystem::OnLevelBeginMakingInvisible(UWorld* World, const ULevelStreaming* LevelStreaming,
-	ULevel* Level)
+void UStreamingLevelSaveSubsystem::LevelAddedToWorld(ULevel* Level, UWorld* World)
 {
-	// Only work in authority mode.
 	if (World && World->GetNetMode() != NM_Client)
 	{
-		VisibleStreamingLevels.Remove(LevelStreaming);
-		SaveLevelInternal(LevelStreaming->GetLoadedLevel(), false, true);
+		VisibleStreamingLevels.Add(Level);
+		LoadLevelInternal(Level);
+	}
+}
+
+void UStreamingLevelSaveSubsystem::PreLevelRemovedFromWorld(ULevel* Level, UWorld* World)
+{
+	if (World && World->GetNetMode() != NM_Client)
+	{
+		// Do not save files because now is loading files and opening new level.
+		if (!bOpeningLevel)
+		{
+			VisibleStreamingLevels.Remove(Level);
+			SaveLevelInternal(Level, false, true);
+		}
 	}
 }

@@ -16,14 +16,14 @@ class STREAMINGLEVELSAVE_API UStreamingLevelSaveComponent : public UActorCompone
 public:
 	UStreamingLevelSaveComponent();
 	
-protected:
-	UStreamingLevelSaveSubsystem* GetSubsystem() const;
-	
 	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Streaming Level Save")
 	bool bTickCheckCell = false;
 
 	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Streaming Level Save")
 	float VelocityThreshold = 0.1f;
+
+protected:
+	UStreamingLevelSaveSubsystem* GetSubsystem() const;
 	
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;

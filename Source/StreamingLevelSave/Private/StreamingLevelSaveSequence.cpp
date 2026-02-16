@@ -20,14 +20,6 @@ UStreamingLevelSaveSequence* UStreamingLevelSaveSequence::NewSaveLoadSequence(UW
 	NewSequence->World = InWorld;
 	NewSequence->SaveFileName = SaveFileName;
 	NewSequence->bSaving = bSaving;
-	if (NewSequence->bSaving)
-	{
-		NewSequence->BeginSave();
-	}
-	else
-	{
-		NewSequence->BeginLoad();
-	}
 
 	return NewSequence;
 }
@@ -39,16 +31,7 @@ FString UStreamingLevelSaveSequence::GetSaveSlotName(FString SlotName) const
 
 void UStreamingLevelSaveSequence::SequenceFinish()
 {
-	if (bSaving)
-	{
-		CopyTempFilesToSavePath();
-	}
-	else
-	{
-		CopySaveFilesToTempPath();
-	}
-	
-	GetSubsystem()->EndSaveLoadSequence(bSaving);
+	GetSubsystem()->EndSaveLoadSequence();
 }
 
 void UStreamingLevelSaveSequence::CopySaveFilesToTempPath() const
@@ -63,12 +46,19 @@ void UStreamingLevelSaveSequence::CopySaveFilesToTempPath() const
 	}
 
 	// Copy temp files to save folder.
-	TArray<FString> TempFiles;
-	IFileManager::Get().FindFiles(TempFiles, *(SaveFolder + "/"));
-	for (const FString& FileName : TempFiles)
+	// TArray<FString> TempFiles;
+	// IFileManager::Get().FindFiles(TempFiles, *(SaveFolder + "/"));
+	// Create directory if not exist. Fixing loading problem.
+	if (!PlatformFile.DirectoryExists(*UStreamingLevelSaveLibrary::GetTempFileDir()))
 	{
-		PlatformFile.CopyDirectoryTree(*UStreamingLevelSaveLibrary::GetTempFileDir(), *FileName, true);
+		PlatformFile.CreateDirectory(*UStreamingLevelSaveLibrary::GetTempFileDir());
 	}
+	PlatformFile.CopyDirectoryTree(*UStreamingLevelSaveLibrary::GetTempFileDir(), *(SaveFolder + "/"), true);
+}
+
+bool UStreamingLevelSaveSequence::CheckSaveFileNameValid_Implementation(const FString& SlotName) const
+{
+	return true;
 }
 
 void UStreamingLevelSaveSequence::CopyTempFilesToSavePath() const

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "StreamingLevelSaveComponent.h"
+#include "StreamingLevelSaveLibrary.h"
 #include "StreamingLevelSaveStructs.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "StreamingLevelSaveSubsystem.generated.h"
@@ -42,16 +43,36 @@ public:
 	TMap<FString, FStreamingLevelSaveData> TempSaveDatas;
 
 	UPROPERTY(BlueprintReadOnly)
-	TSet<const ULevelStreaming*> VisibleStreamingLevels;
+	TSet<const ULevel*> VisibleStreamingLevels;
 
 	// Saving Loading ==========================
 	UPROPERTY(BlueprintReadOnly)
 	UStreamingLevelSaveSequence* SaveLoadSequence = nullptr;
+
+	bool bOpeningLevel = false;
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
-	void BeginSaveLoadSequence(FString SaveFileName, bool bSaving);
+	void SetCurrentSaveSlotName(FString String)
+	{
+		CurrentSaveGameSlot = String;
+	}
 
-	void EndSaveLoadSequence(bool bSaving);
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save Subsystem")
+	FString GetCurrentSaveSlotName() const
+	{
+		return CurrentSaveGameSlot;
+	}
+	
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save Subsystem")
+	FString GetSaveSlotName(FString SlotName) const
+	{
+		return UStreamingLevelSaveLibrary::MakeSaveGameDir(CurrentSaveGameSlot) + SlotName;
+	}
+	
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
+	void BeginSaveLoadSequence(FString SaveFileName, TSoftObjectPtr<UWorld> LoadOpenLevel, bool bSaving);
+
+	void EndSaveLoadSequence();
 	
 	UFUNCTION(BlueprintPure, Category = "Streaming Level Save Subsystem")
 	bool IsSaving() const;
@@ -62,6 +83,9 @@ public:
 	
 	TArray<FString> CollectTempSaveFiles();
 
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
+	TArray<FString> FindMetaDataFiles(FString MetaDataFileName);
+	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
 	static void ClearAllTempFiles();
 	
@@ -81,6 +105,9 @@ public:
 	UTexture2D* LoadScreenshot(FSaveGameScreenshotData PngData);
 	
 protected:
+	// Used to identify current loaded save game slot name.
+	FString CurrentSaveGameSlot;
+	
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
@@ -117,11 +144,11 @@ private:
 	void OnLevelActorDestroyed(AActor* DestroyedActor);
 
 	void OnScreenshotCaptured(int32 Width, int32 Height, const TArray<FColor>& Colors);
-	
-	void PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& String);
+
 	void PostLoadMapWithWorld(UWorld* World);
+	void PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& String);
 	
-	void OnLevelBeginMakingVisible(UWorld* World, const ULevelStreaming* LevelStreaming, ULevel* Level);
-	void OnLevelBeginMakingInvisible(UWorld* World, const ULevelStreaming* LevelStreaming, ULevel* Level);
+	void LevelAddedToWorld(ULevel* Level, UWorld* World);
+	void PreLevelRemovedFromWorld(ULevel* Level, UWorld* World);
 	// Delegate bindings ======
 };

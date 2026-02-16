@@ -32,7 +32,7 @@ struct FStreamingLevelSaveData
 
 	/** Save destroyed datas for persistent actors. */
 	UPROPERTY(BlueprintReadOnly)
-	TSet<FGuid> DestroyedActors;
+	TArray<FGuid> DestroyedActors;
 
 	/** Save datas for persistent actors and components. */
 	UPROPERTY(BlueprintReadOnly)

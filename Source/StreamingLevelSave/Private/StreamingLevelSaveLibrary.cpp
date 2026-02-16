@@ -76,8 +76,6 @@ bool UStreamingLevelSaveLibrary::IsSaveInterfaceObject(const UObject* Object, FG
 
 	if (Object->Implements<UStreamingLevelSaveInterface>())
 	{
-		// Ignore check if is runtime object.
-		if (IsRuntimeObject(Object)) return true;
 		// Check id if not runtime object.
 		OutId = IStreamingLevelSaveInterface::Execute_GetIdentityGuid(Object);
 		return OutId.IsValid();
@@ -176,6 +174,12 @@ FGuid UStreamingLevelSaveLibrary::GetIdentityGuidInternal(const UObject* Object)
 			InitGuidFromString(Comp->GetName(), Guid);
 			return Guid;
 		}
+		// No matter just a valid guid :D
+		if (const auto Actor = Cast<AActor>(Object))
+		{
+			InitGuidFromString(Actor->GetName(), Guid);
+			return Guid;
+		}
 	}
 	else
 	{
@@ -216,4 +220,16 @@ ULevel* UStreamingLevelSaveLibrary::GetAssociateLevelInternal(UObject* Object)
 	}
 
 	return nullptr;
+}
+
+FString UStreamingLevelSaveLibrary::GetUniqueNetIdString(const FUniqueNetIdRepl& NetId)
+{
+	return NetId.ToString();
+}
+
+bool UStreamingLevelSaveLibrary::IsDirectoryExistInSaveGame(const FString DirectoryName)
+{
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	const auto SaveGameFolder = MakeSaveGameFolder(DirectoryName);
+	return PlatformFile.DirectoryExists(*SaveGameFolder);
 }
