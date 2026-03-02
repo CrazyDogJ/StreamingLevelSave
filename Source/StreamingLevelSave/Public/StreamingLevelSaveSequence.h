@@ -42,10 +42,15 @@ public:
 	void BeginLoad();
 
 	UFUNCTION(BlueprintNativeEvent, Category = "Streaming Level Save")
+	bool IsAllowSaving() const;
+	
+	UFUNCTION(BlueprintNativeEvent, Category = "Streaming Level Save")
 	bool CheckSaveFileNameValid(const FString& SlotName) const;
 
 	void CopyTempFilesToSavePath() const;
 	void CopySaveFilesToTempPath() const;
+
+	void SetWorld(UWorld* InWorld) {World = InWorld;}
 	
 protected:
 	UPROPERTY()

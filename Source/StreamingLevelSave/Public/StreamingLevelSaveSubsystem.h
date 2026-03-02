@@ -73,6 +73,9 @@ public:
 	void BeginSaveLoadSequence(FString SaveFileName, TSoftObjectPtr<UWorld> LoadOpenLevel, bool bSaving);
 
 	void EndSaveLoadSequence();
+
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save Subsystem")
+	bool IsAllowSaving() const;
 	
 	UFUNCTION(BlueprintPure, Category = "Streaming Level Save Subsystem")
 	bool IsSaving() const;

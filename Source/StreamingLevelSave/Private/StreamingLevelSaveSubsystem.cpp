@@ -92,6 +92,18 @@ void UStreamingLevelSaveSubsystem::EndSaveLoadSequence()
 	}
 }
 
+bool UStreamingLevelSaveSubsystem::IsAllowSaving() const
+{
+	if (const auto Class = GetDefault<UStreamingLevelSaveSettings>()->GetDefaultSaveSequenceClass())
+	{
+		const auto DefaultObject = Class.GetDefaultObject();
+		DefaultObject->SetWorld(GetWorld());
+		return DefaultObject->IsAllowSaving();
+	}
+
+	return true;
+}
+
 bool UStreamingLevelSaveSubsystem::IsSaving() const
 {
 	if (SaveLoadSequence && SaveLoadSequence->bSaving)

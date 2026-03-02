@@ -61,6 +61,11 @@ bool UStreamingLevelSaveSequence::CheckSaveFileNameValid_Implementation(const FS
 	return true;
 }
 
+bool UStreamingLevelSaveSequence::IsAllowSaving_Implementation() const
+{
+	return true;
+}
+
 void UStreamingLevelSaveSequence::CopyTempFilesToSavePath() const
 {
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
