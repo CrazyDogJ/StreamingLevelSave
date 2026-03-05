@@ -27,6 +27,12 @@ public:
 
 	UPROPERTY(Config, EditAnywhere)
 	TSoftClassPtr<UStreamingLevelSaveSequence> DefaultSaveSequenceClass;
+
+	UPROPERTY(Config, EditAnywhere)
+	TArray<FString> IgnoreLevelNames = {TEXT("Untitled_0")};
+
+	UPROPERTY(Config, EditAnywhere)
+	TArray<FString> PostLoadMapClearTemp = {};
 	
 	UPROPERTY(Config, EditAnywhere)
 	FString TempSaveFilesFolder = "TempLevels";

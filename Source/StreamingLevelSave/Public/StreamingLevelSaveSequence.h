@@ -16,10 +16,12 @@ class STREAMINGLEVELSAVE_API UStreamingLevelSaveSequence : public UObject
 	
 public:
 	UStreamingLevelSaveSubsystem* GetSubsystem() const;
-	static UStreamingLevelSaveSequence* NewSaveLoadSequence(UWorld* InWorld, FString SaveFileName, bool bSaving);
 
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
-	bool bSaving;
+	bool bSaving = true;
+
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
+	bool bProgressing = false;
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Base")
 	FString SaveFileName = "DefaultSaveGame";
@@ -41,6 +43,9 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Streaming Level Save")
 	void BeginLoad();
 
+	UFUNCTION(BlueprintImplementableEvent, Category = "Streaming Level Save")
+	void CleanUp();
+
 	UFUNCTION(BlueprintNativeEvent, Category = "Streaming Level Save")
 	bool IsAllowSaving() const;
 	
@@ -50,14 +55,14 @@ public:
 	void CopyTempFilesToSavePath() const;
 	void CopySaveFilesToTempPath() const;
 
-	void SetWorld(UWorld* InWorld) {World = InWorld;}
+	void SetSubsystem(UStreamingLevelSaveSubsystem* InSubsystem) { Subsystem = InSubsystem; }
 	
 protected:
 	UPROPERTY()
-	UWorld* World = nullptr;
+	UStreamingLevelSaveSubsystem* Subsystem = nullptr;
 	
 #if WITH_EDITOR
 	virtual bool ImplementsGetWorld() const override { return true; }
 #endif
-	virtual class UWorld* GetWorld() const override { return World; }
+	virtual class UWorld* GetWorld() const override;
 };

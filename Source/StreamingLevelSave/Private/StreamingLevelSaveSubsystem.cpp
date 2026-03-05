@@ -7,6 +7,7 @@
 #include "StreamingLevelSaveSequence.h"
 #include "StreamingLevelSaveSettings.h"
 #include "Kismet/GameplayStatics.h"
+#include "WorldPartition/WorldPartitionRuntimeCell.h"
 
 #define LIBRARY UStreamingLevelSaveLibrary
 #define SETTINGS UStreamingLevelSaveSettings
@@ -33,9 +34,9 @@ FStreamingLevelSaveData* UStreamingLevelSaveSubsystem::GetOrAddTempCellSaveData(
 	return GetOrAddCellSaveData(CellName, TempSaveDatas);
 }
 
-void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, TSoftObjectPtr<UWorld> LoadOpenLevel, bool bSaving)
+void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, bool bSaving)
 {
-	if (!SaveLoadSequence)
+	if (!IsSaving() && !IsLoading())
 	{
 		if (bSaving)
 		{
@@ -46,9 +47,12 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, T
 			OnPreLoad.Broadcast();
 		}
 		
-		SaveLoadSequence = UStreamingLevelSaveSequence::NewSaveLoadSequence(GetWorld(), SaveFileName, bSaving);
+		SaveLoadSequence->SaveFileName = SaveFileName;
+		SaveLoadSequence->bSaving = bSaving;
+		SaveLoadSequence->bProgressing = true;
+		
 		// Call level saving and loading at begin.
-		if (SaveLoadSequence->bSaving)
+		if (bSaving)
 		{
 			SaveLoadSequence->CopyTempFilesToSavePath();
 			SaveLoadSequence->BeginSave();
@@ -56,13 +60,10 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, T
 		else
 		{
 			// Set current save slot name.
-			const FName LevelName = FName(*FPackageName::ObjectPathToPackageName(LoadOpenLevel.ToString()));
-			if (SaveLoadSequence->CheckSaveFileNameValid(SaveFileName) && LevelName.IsValid())
+			if (SaveLoadSequence->CheckSaveFileNameValid(SaveFileName))
 			{
 				SetCurrentSaveSlotName(SaveFileName);
-				bOpeningLevel = true;
 				SaveLoadSequence->CopySaveFilesToTempPath();
-				UGameplayStatics::OpenLevelBySoftObjectPtr(GetWorld(), LoadOpenLevel);
 				SaveLoadSequence->BeginLoad();
 			}
 			else
@@ -78,6 +79,8 @@ void UStreamingLevelSaveSubsystem::EndSaveLoadSequence()
 {
 	if (SaveLoadSequence)
 	{
+		SaveLoadSequence->bProgressing = false;
+		
 		if (SaveLoadSequence->bSaving)
 		{
 			OnSaveComplete.Broadcast();
@@ -86,19 +89,14 @@ void UStreamingLevelSaveSubsystem::EndSaveLoadSequence()
 		{
 			OnLoadComplete.Broadcast();
 		}
-
-		SaveLoadSequence->ConditionalBeginDestroy();
-		SaveLoadSequence = nullptr;
 	}
 }
 
 bool UStreamingLevelSaveSubsystem::IsAllowSaving() const
 {
-	if (const auto Class = GetDefault<UStreamingLevelSaveSettings>()->GetDefaultSaveSequenceClass())
+	if (SaveLoadSequence)
 	{
-		const auto DefaultObject = Class.GetDefaultObject();
-		DefaultObject->SetWorld(GetWorld());
-		return DefaultObject->IsAllowSaving();
+		return SaveLoadSequence->IsAllowSaving();
 	}
 
 	return true;
@@ -106,7 +104,7 @@ bool UStreamingLevelSaveSubsystem::IsAllowSaving() const
 
 bool UStreamingLevelSaveSubsystem::IsSaving() const
 {
-	if (SaveLoadSequence && SaveLoadSequence->bSaving)
+	if (SaveLoadSequence->bProgressing && SaveLoadSequence->bSaving)
 	{
 		return true;
 	}
@@ -116,7 +114,7 @@ bool UStreamingLevelSaveSubsystem::IsSaving() const
 
 bool UStreamingLevelSaveSubsystem::IsLoading() const
 {
-	if (SaveLoadSequence && !SaveLoadSequence->bSaving)
+	if (SaveLoadSequence->bProgressing && !SaveLoadSequence->bSaving)
 	{
 		return true;
 	}
@@ -176,18 +174,63 @@ void UStreamingLevelSaveSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	{
 		AssignDelegates();
 	}
+
+	const auto Class = GetDefault<UStreamingLevelSaveSettings>()->GetDefaultSaveSequenceClass();
+	SaveLoadSequence = NewObject<UStreamingLevelSaveSequence>(this, Class);
+	SaveLoadSequence->SetSubsystem(this);
 }
 
 void UStreamingLevelSaveSubsystem::Deinitialize()
 {
 	Super::Deinitialize();
 
+	if (SaveLoadSequence)
+	{
+		SaveLoadSequence->CleanUp();
+		SaveLoadSequence->ConditionalBeginDestroy();
+		SaveLoadSequence = nullptr;
+	}
+	
 	RemoveDelegates();
 	
 	if (SETTINGS::GetClearTempFilesOnEndGame())
 	{
 		ClearAllTempFiles();
 	}
+}
+
+void UStreamingLevelSaveSubsystem::Tick(float DeltaTime)
+{
+	// Stop runtime actors to get out of bound.
+	for (const auto Itr : RuntimeActorComponents)
+	{
+		if (Itr->bTickCheckCell)
+		{
+			const auto Actor = Itr->GetOwner();
+			const auto Velocity = Actor->GetVelocity();
+			const auto VelThreshold = Itr->VelocityThreshold;
+			if (Velocity.Length() >= VelThreshold)
+			{
+				for (const auto Level : VisibleStreamingLevels)
+				{
+					const auto OwnerActor = Itr->GetOwner();
+					if (const auto Cell = Level->GetWorldPartitionRuntimeCell())
+					{
+						// If actor is trying to move outside of bound, we immediately stop that actor.
+						if (!Cell->GetCellBounds().IsInsideXY(OwnerActor->GetActorLocation() + Velocity))
+						{
+							OwnerActor->GetRootComponent()->ComponentVelocity = FVector::ZeroVector;
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+TStatId UStreamingLevelSaveSubsystem::GetStatId() const
+{
+	RETURN_QUICK_DECLARE_CYCLE_STAT(UStreamingLevelSaveSubsystem, STATGROUP_Tickables);
 }
 
 bool UStreamingLevelSaveSubsystem::SaveTempData(const FString& LevelStreamingName, const FStreamingLevelSaveData& SaveData)
@@ -224,6 +267,15 @@ bool UStreamingLevelSaveSubsystem::LoadTempData(const FString& LevelStreamingNam
 void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool bOnlyCollect, bool bAsync)
 {
 	const auto StreamingLevelName = LIBRARY::GetLevelName(Level);
+	// Dont save level in ignore list.
+	if (const auto Settings = GetDefault<UStreamingLevelSaveSettings>())
+	{
+		if (Settings->IgnoreLevelNames.Find(StreamingLevelName) >= 0)
+		{
+			return;
+		}
+	}
+	
 	if (const auto Found = GetOrAddTempCellSaveData(StreamingLevelName))
 	{
 		// Capture datas in game thread.
@@ -395,26 +447,18 @@ void UStreamingLevelSaveSubsystem::StoreRuntimeActors(const ULevel* InLevel,
 	TArray<UStreamingLevelSaveComponent*> Components;
 	for (const auto Itr : RuntimeActorComponents)
 	{
-		// Get current overlap or associate level
-		const ULevel* Level = nullptr;
-		FGuid Id;
-		if (LIBRARY::IsSaveInterfaceObject(Itr->GetOwner(), Id))
+		// Store runtime actor
+		const auto OwnerActor = Itr->GetOwner();
+		const auto Cell = InLevel->GetWorldPartitionRuntimeCell();
+		if (Cell && Cell->GetCellBounds().IsInsideXY(OwnerActor->GetActorLocation()))
 		{
-			Level = INTERFACE::Execute_GetAssociateLevel(Itr->GetOwner());
-		}
-
-		// If actor is in the same place that level streaming is making invisible.
-		if (Level && LIBRARY::GetLevelName(InLevel) == LIBRARY::GetLevelName(Level))
-		{
-			if (LIBRARY::IsSaveInterfaceObject(Itr->GetOwner(), Id))
-			{
-				FStreamingLevelSaveRuntimeData RuntimeData;
-				StoreRuntimeActor(Itr->GetOwner(), RuntimeData);
-				SaveData->RuntimeActorsSaveDatas.Add(RuntimeData);
-				Components.Add(Itr);
-			}
+			FStreamingLevelSaveRuntimeData RuntimeData;
+			StoreRuntimeActor(Itr->GetOwner(), RuntimeData);
+			SaveData->RuntimeActorsSaveDatas.Add(RuntimeData);
+			Components.Add(Itr);
 		}
 	}
+	// Remove actors.
 	if (!bCollectOnly)
 	{
 		for (const auto Itr : Components)
@@ -519,8 +563,11 @@ void UStreamingLevelSaveSubsystem::OnScreenshotCaptured(int32 Width, int32 Heigh
 
 void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 {
-	// Reset opening level to false.
-	bOpeningLevel = false;
+	// Clear temp files when load these maps/
+	if (GetDefault<UStreamingLevelSaveSettings>()->PostLoadMapClearTemp.Find(World->GetCurrentLevel()->GetName()))
+	{
+		ClearAllTempFiles();
+	}
 	
 	if (!World->GetWorldPartition() && World->GetNetMode() != NM_Client)
 	{
@@ -534,7 +581,7 @@ void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& Wo
 	if (!WorldContext.World()->GetWorldPartition() && WorldContext.World()->GetNetMode() != NM_Client)
 	{
 		// Do not save files because now is loading files and opening new level.
-		if (!bOpeningLevel)
+		if (SaveLoadSequence && !SaveLoadSequence->bProgressing)
 		{
 			VisibleStreamingLevels.Remove(WorldContext.World()->PersistentLevel);
 			SaveLevelInternal(WorldContext.World()->PersistentLevel, false, true);
@@ -556,7 +603,7 @@ void UStreamingLevelSaveSubsystem::PreLevelRemovedFromWorld(ULevel* Level, UWorl
 	if (World && World->GetNetMode() != NM_Client)
 	{
 		// Do not save files because now is loading files and opening new level.
-		if (!bOpeningLevel)
+		if (SaveLoadSequence && !SaveLoadSequence->bProgressing)
 		{
 			VisibleStreamingLevels.Remove(Level);
 			SaveLevelInternal(Level, false, true);

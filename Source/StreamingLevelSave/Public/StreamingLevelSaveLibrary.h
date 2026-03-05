@@ -38,11 +38,6 @@ public:
 	 */
 	static ULevel* GetAssociateLevelDefault(const AActor* Actor);
 
-	/** As name said, query given location in which runtime cell.
-	 * You should not call it in not WP level.
-	 */
-	static void GetOverlappedWorldPartitionRuntimeCell2D(const UWorld* World, const FVector& Location, const UWorldPartitionRuntimeCell*& OutCell);
-
 	/** Init determined guid with given string. */
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save")
 	static void InitGuidFromString(FString String, UPARAM(ref)FGuid& Guid);

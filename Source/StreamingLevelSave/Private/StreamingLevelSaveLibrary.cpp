@@ -2,9 +2,6 @@
 
 #include "StreamingLevelSaveInterface.h"
 #include "StreamingLevelSaveSettings.h"
-#include "WorldPartition/WorldPartition.h"
-#include "WorldPartition/WorldPartitionRuntimeHash.h"
-#include "WorldPartition/WorldPartitionSubsystem.h"
 
 FString UStreamingLevelSaveLibrary::GetTempFileFolder()
 {
@@ -101,59 +98,9 @@ ULevel* UStreamingLevelSaveLibrary::GetAssociateLevelDefault(const AActor* Actor
 	{
 		return Actor->GetLevel();
 	}
-	
-	// Runtime actor
-	const UWorldPartitionRuntimeCell* Cell = nullptr;
-	GetOverlappedWorldPartitionRuntimeCell2D(Actor->GetWorld(), Actor->GetActorLocation(), Cell);
-	if (Cell)
-	{
-		return Cell->GetLevel();
-	}
 
 	// No WP, use current persistent level.
 	return Actor->GetWorld()->GetCurrentLevel();
-}
-
-void UStreamingLevelSaveLibrary::GetOverlappedWorldPartitionRuntimeCell2D(
-	const UWorld* World, const FVector& Location, const UWorldPartitionRuntimeCell*& OutCell)
-{
-	OutCell = nullptr;
-	
-	const auto WorldPartitionSubsystem = World->GetSubsystem<UWorldPartitionSubsystem>();
-	if (!WorldPartitionSubsystem)
-	{
-		return;
-	}
-
-	auto SmallestCellVolume = 0.f;
-
-	const auto ForEachCellFunction = [&OutCell, &Location, &SmallestCellVolume](const UWorldPartitionRuntimeCell* Cell) -> bool
-	{
-		// for simplicity, assuming actor bounds are small enough that only a single cell needs to be considered
-		if (const auto CellBounds = Cell->GetCellBounds(); CellBounds.IsInsideXY(Location))
-		{
-			// use the smallest cell
-			if (const auto Volume = CellBounds.GetVolume(); !OutCell || Volume < SmallestCellVolume)
-			{
-				SmallestCellVolume = Volume;
-				OutCell = Cell;
-			}
-		}
-		return true;
-	};
-
-	// ReSharper disable once CppParameterMayBeConstPtrOrRef
-	auto ForEachWpFunction = [ForEachCellFunction](UWorldPartition* WorldPartition) -> bool
-	{
-		if (WorldPartition)
-		{
-			WorldPartition->RuntimeHash->ForEachStreamingCells(ForEachCellFunction);
-		}
-
-		return true;
-	};
-
-	WorldPartitionSubsystem->ForEachWorldPartition(ForEachWpFunction);
 }
 
 void UStreamingLevelSaveLibrary::InitGuidFromString(FString String, FGuid& Guid)

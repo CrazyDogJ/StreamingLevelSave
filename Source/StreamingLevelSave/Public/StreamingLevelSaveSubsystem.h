@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "StreamingLevelSaveComponent.h"
-#include "StreamingLevelSaveLibrary.h"
 #include "StreamingLevelSaveStructs.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "StreamingLevelSaveSubsystem.generated.h"
@@ -14,7 +13,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FSaveGameDelegate);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnScreenshotCapturedBlueprint, FSaveGameScreenshotData, Data);
 
 UCLASS()
-class STREAMINGLEVELSAVE_API UStreamingLevelSaveSubsystem : public UGameInstanceSubsystem
+class STREAMINGLEVELSAVE_API UStreamingLevelSaveSubsystem : public UGameInstanceSubsystem, public FTickableGameObject
 {
 	GENERATED_BODY()
 
@@ -48,8 +47,6 @@ public:
 	// Saving Loading ==========================
 	UPROPERTY(BlueprintReadOnly)
 	UStreamingLevelSaveSequence* SaveLoadSequence = nullptr;
-
-	bool bOpeningLevel = false;
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
 	void SetCurrentSaveSlotName(FString String)
@@ -66,11 +63,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Streaming Level Save Subsystem")
 	FString GetSaveSlotName(FString SlotName) const
 	{
-		return UStreamingLevelSaveLibrary::MakeSaveGameDir(CurrentSaveGameSlot) + SlotName;
+		return CurrentSaveGameSlot + "/" + SlotName;
 	}
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
-	void BeginSaveLoadSequence(FString SaveFileName, TSoftObjectPtr<UWorld> LoadOpenLevel, bool bSaving);
+	void BeginSaveLoadSequence(FString SaveFileName, bool bSaving);
 
 	void EndSaveLoadSequence();
 
@@ -114,6 +111,12 @@ protected:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
+	// Tickable Object Interface
+	virtual void Tick(float DeltaTime);
+	virtual ETickableTickType GetTickableTickType() const { return ETickableTickType::Always; }
+	virtual TStatId GetStatId() const override;
+	// Tickable Object Interface
+	
 private:
 	// Save temp data.
 	static bool SaveTempData(const FString& LevelStreamingName, const FStreamingLevelSaveData& SaveData);

@@ -3,9 +3,7 @@
 
 #include "StreamingLevelSaveSequence.h"
 
-#include "StreamingLevelSave.h"
 #include "StreamingLevelSaveLibrary.h"
-#include "StreamingLevelSaveSettings.h"
 #include "StreamingLevelSaveSubsystem.h"
 
 UStreamingLevelSaveSubsystem* UStreamingLevelSaveSequence::GetSubsystem() const
@@ -13,24 +11,14 @@ UStreamingLevelSaveSubsystem* UStreamingLevelSaveSequence::GetSubsystem() const
 	return GetWorld()->GetGameInstance()->GetSubsystem<UStreamingLevelSaveSubsystem>();
 }
 
-UStreamingLevelSaveSequence* UStreamingLevelSaveSequence::NewSaveLoadSequence(UWorld* InWorld, FString SaveFileName, bool bSaving)
-{
-	const auto Class = GetDefault<UStreamingLevelSaveSettings>()->GetDefaultSaveSequenceClass();
-	const auto NewSequence = NewObject<UStreamingLevelSaveSequence>(InWorld, Class);
-	NewSequence->World = InWorld;
-	NewSequence->SaveFileName = SaveFileName;
-	NewSequence->bSaving = bSaving;
-
-	return NewSequence;
-}
-
 FString UStreamingLevelSaveSequence::GetSaveSlotName(FString SlotName) const
 {
-	return UStreamingLevelSaveLibrary::MakeSaveGameDir(SaveFileName) + SlotName;
+	return SaveFileName + "/" + SlotName;
 }
 
 void UStreamingLevelSaveSequence::SequenceFinish()
 {
+	CleanUp();
 	GetSubsystem()->EndSaveLoadSequence();
 }
 
@@ -54,6 +42,16 @@ void UStreamingLevelSaveSequence::CopySaveFilesToTempPath() const
 		PlatformFile.CreateDirectory(*UStreamingLevelSaveLibrary::GetTempFileDir());
 	}
 	PlatformFile.CopyDirectoryTree(*UStreamingLevelSaveLibrary::GetTempFileDir(), *(SaveFolder + "/"), true);
+}
+
+class UWorld* UStreamingLevelSaveSequence::GetWorld() const
+{
+	if (const auto SaveSubsystem = Cast<UStreamingLevelSaveSubsystem>(GetOuter()))
+	{
+		return SaveSubsystem->GetGameInstance()->GetWorld();
+	}
+	
+	return UObject::GetWorld();
 }
 
 bool UStreamingLevelSaveSequence::CheckSaveFileNameValid_Implementation(const FString& SlotName) const
