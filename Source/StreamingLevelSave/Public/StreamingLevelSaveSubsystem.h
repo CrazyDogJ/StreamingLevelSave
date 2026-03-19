@@ -67,7 +67,7 @@ public:
 	}
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
-	void BeginSaveLoadSequence(FString SaveFileName, bool bSaving);
+	void BeginSaveLoadSequence(FString SaveFileName, bool bSaving, bool bMultiplay);
 
 	void EndSaveLoadSequence();
 

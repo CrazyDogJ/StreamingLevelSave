@@ -21,6 +21,9 @@ public:
 	bool bSaving = true;
 
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
+	bool bMultiplay = false;
+	
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
 	bool bProgressing = false;
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Base")
