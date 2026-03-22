@@ -22,6 +22,9 @@ public:
 
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
 	bool bMultiplay = false;
+
+	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
+	bool bLan = false;
 	
 	UPROPERTY(BlueprintReadOnly, VisibleAnywhere, Category = "Base")
 	bool bProgressing = false;

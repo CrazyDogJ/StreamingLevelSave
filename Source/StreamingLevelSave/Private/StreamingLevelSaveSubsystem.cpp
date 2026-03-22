@@ -34,7 +34,7 @@ FStreamingLevelSaveData* UStreamingLevelSaveSubsystem::GetOrAddTempCellSaveData(
 	return GetOrAddCellSaveData(CellName, TempSaveDatas);
 }
 
-void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, bool bSaving, bool bMultiplay)
+void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, bool bSaving, bool bMultiplay, bool bLan)
 {
 	if (!IsSaving() && !IsLoading())
 	{
@@ -51,6 +51,7 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, b
 		SaveLoadSequence->bSaving = bSaving;
 		SaveLoadSequence->bProgressing = true;
 		SaveLoadSequence->bMultiplay = bMultiplay;
+		SaveLoadSequence->bLan = bLan;
 		
 		// Call level saving and loading at begin.
 		if (bSaving)
