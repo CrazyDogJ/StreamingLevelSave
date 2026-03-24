@@ -503,6 +503,7 @@ void UStreamingLevelSaveSubsystem::RestoreRuntimeActors(FStreamingLevelSaveData*
 
 void UStreamingLevelSaveSubsystem::ClearAllTempFiles()
 {
+	TempSaveDatas.Empty();
 	IFileManager::Get().DeleteDirectory(*LIBRARY::GetTempFileFolder(), true, true);
 }
 

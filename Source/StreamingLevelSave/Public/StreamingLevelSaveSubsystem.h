@@ -87,7 +87,7 @@ public:
 	TArray<FString> FindMetaDataFiles(FString MetaDataFileName);
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
-	static void ClearAllTempFiles();
+	void ClearAllTempFiles();
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
 	void AssignDelegates();
