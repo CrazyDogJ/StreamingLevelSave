@@ -37,6 +37,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Streaming Level Save")
 	FString GetSaveSlotName(FString SlotName) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save")
+	void DeleteCurrentSaveFiles();
 	
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save")
 	void SequenceFinish();

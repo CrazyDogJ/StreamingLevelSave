@@ -180,3 +180,21 @@ bool UStreamingLevelSaveLibrary::IsDirectoryExistInSaveGame(const FString Direct
 	const auto SaveGameFolder = MakeSaveGameFolder(DirectoryName);
 	return PlatformFile.DirectoryExists(*SaveGameFolder);
 }
+
+bool UStreamingLevelSaveLibrary::DeleteSaveGame(const FString SaveGameName)
+{
+	if (SaveGameName.IsEmpty())
+	{
+		return false;
+	}
+	
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	const FString SaveFolder = UStreamingLevelSaveLibrary::MakeSaveGameDir(SaveGameName);
+	if (!PlatformFile.DirectoryExists(*SaveFolder))
+	{
+		return false;
+	}
+
+	PlatformFile.DeleteDirectoryRecursively(*SaveFolder);
+	return true;
+}

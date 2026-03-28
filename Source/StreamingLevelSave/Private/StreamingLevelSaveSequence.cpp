@@ -16,6 +16,11 @@ FString UStreamingLevelSaveSequence::GetSaveSlotName(FString SlotName) const
 	return SaveFileName + "/" + SlotName;
 }
 
+void UStreamingLevelSaveSequence::DeleteCurrentSaveFiles()
+{
+	UStreamingLevelSaveLibrary::DeleteSaveGame(SaveFileName);
+}
+
 void UStreamingLevelSaveSequence::SequenceFinish()
 {
 	CleanUp();

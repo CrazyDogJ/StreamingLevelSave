@@ -62,4 +62,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Streaming Level Save|Save Game")
 	static bool IsDirectoryExistInSaveGame(FString DirectoryName);
+
+	UFUNCTION(BlueprintCallable)
+	static bool DeleteSaveGame(FString SaveGameName);
 };
