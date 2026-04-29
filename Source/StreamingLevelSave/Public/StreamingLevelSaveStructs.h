@@ -50,3 +50,20 @@ struct FSaveGameScreenshotData
 	UPROPERTY(BlueprintReadOnly)
 	TArray<uint8> Data;
 };
+
+USTRUCT(BlueprintType)
+struct FStreamingLevelActorData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FString LevelName;
+
+	UPROPERTY(BlueprintReadOnly)
+	FGuid ActorGuid;
+
+	bool IsValid() const
+	{
+		return !LevelName.IsEmpty() && ActorGuid.IsValid();
+	}
+};

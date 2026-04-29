@@ -65,4 +65,7 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	static bool DeleteSaveGame(FString SaveGameName);
+
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
+	static bool GetLevelActorData(AActor* Actor, FStreamingLevelActorData& OutData);
 };

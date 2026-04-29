@@ -198,3 +198,18 @@ bool UStreamingLevelSaveLibrary::DeleteSaveGame(const FString SaveGameName)
 	PlatformFile.DeleteDirectoryRecursively(*SaveFolder);
 	return true;
 }
+
+bool UStreamingLevelSaveLibrary::GetLevelActorData(AActor* Actor, FStreamingLevelActorData& OutData)
+{
+	if (Actor && Actor->Implements<UStreamingLevelSaveInterface>())
+	{
+		if (const ULevel* Level = IStreamingLevelSaveInterface::Execute_GetAssociateLevel(Actor))
+		{
+			OutData.LevelName = GetLevelName(Level);
+			OutData.ActorGuid = FGuid::NewDeterministicGuid(Actor->GetPathName());
+			return true;
+		}
+	}
+
+	return false;
+}

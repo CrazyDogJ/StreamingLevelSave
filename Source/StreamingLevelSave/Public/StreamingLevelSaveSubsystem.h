@@ -103,6 +103,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
 	UTexture2D* LoadScreenshot(FSaveGameScreenshotData PngData);
+
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
+	void AddDestroyedLevelActor(const FStreamingLevelActorData InData);
 	
 protected:
 	// Used to identify current loaded save game slot name.

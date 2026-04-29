@@ -435,6 +435,11 @@ void UStreamingLevelSaveSubsystem::RestorePersistentActors(const ULevel* Level, 
 				{
 					RestoreObjectUnsafe(Itr, *FoundData);
 				}
+				else
+				{
+					// If not destroyed we execute post load save data.
+					INTERFACE::Execute_PostLoadSaveData(Itr);
+				}
 				
 				Itr->OnDestroyed.AddDynamic(this, &ThisClass::OnLevelActorDestroyed);
 			}
@@ -541,13 +546,24 @@ UTexture2D* UStreamingLevelSaveSubsystem::LoadScreenshot(const FSaveGameScreensh
 	return nullptr;
 }
 
+void UStreamingLevelSaveSubsystem::AddDestroyedLevelActor(const FStreamingLevelActorData InData)
+{
+	if (InData.IsValid())
+	{
+		if (const auto Found = GetOrAddTempCellSaveData(InData.LevelName))
+		{
+			Found->DestroyedActors.AddUnique(InData.ActorGuid);
+		}
+	}
+}
+
 void UStreamingLevelSaveSubsystem::OnLevelActorDestroyed(AActor* DestroyedActor)
 {
 	if (const ULevel* Level = INTERFACE::Execute_GetAssociateLevel(DestroyedActor))
 	{
 		if (const auto Found = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level)))
 		{
-			Found->DestroyedActors.Add(FGuid::NewDeterministicGuid(DestroyedActor->GetPathName()));
+			Found->DestroyedActors.AddUnique(FGuid::NewDeterministicGuid(DestroyedActor->GetPathName()));
 		}
 	}
 }
