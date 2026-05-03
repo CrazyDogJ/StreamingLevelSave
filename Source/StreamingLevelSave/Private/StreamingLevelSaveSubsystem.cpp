@@ -61,6 +61,9 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, b
 		}
 		else
 		{
+			// Clear temp file first(Fix bug)
+			ClearAllTempFiles();
+			
 			// Set current save slot name.
 			if (SaveLoadSequence->CheckSaveFileNameValid(SaveFileName))
 			{
@@ -459,10 +462,18 @@ void UStreamingLevelSaveSubsystem::StoreRuntimeActors(const ULevel* InLevel,
 		const auto Cell = InLevel->GetWorldPartitionRuntimeCell();
 		if (Cell && Cell->GetCellBounds().IsInsideXY(OwnerActor->GetActorLocation()))
 		{
-			FStreamingLevelSaveRuntimeData RuntimeData;
-			StoreRuntimeActor(Itr->GetOwner(), RuntimeData);
-			SaveData->RuntimeActorsSaveDatas.Add(RuntimeData);
-			Components.Add(Itr);
+			if (Itr->bSave)
+			{
+				FStreamingLevelSaveRuntimeData RuntimeData;
+				StoreRuntimeActor(Itr->GetOwner(), RuntimeData);
+				SaveData->RuntimeActorsSaveDatas.Add(RuntimeData);
+				Components.Add(Itr);
+			}
+			else
+			{
+				// Additional Feature : Destroy runtime actor if not save that.
+				Components.Add(Itr);
+			}
 		}
 	}
 	// Remove actors.
@@ -583,7 +594,7 @@ void UStreamingLevelSaveSubsystem::OnScreenshotCaptured(int32 Width, int32 Heigh
 void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 {
 	// Clear temp files when load these maps/
-	if (GetDefault<UStreamingLevelSaveSettings>()->PostLoadMapClearTemp.Find(World->GetCurrentLevel()->GetName()))
+	if (GetDefault<UStreamingLevelSaveSettings>()->PostLoadMapClearTemp.Contains(World->GetCurrentLevel()->GetName()))
 	{
 		ClearAllTempFiles();
 	}

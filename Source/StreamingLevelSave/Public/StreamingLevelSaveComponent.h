@@ -15,6 +15,9 @@ class STREAMINGLEVELSAVE_API UStreamingLevelSaveComponent : public UActorCompone
 
 public:
 	UStreamingLevelSaveComponent();
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Streaming Level Save")
+	bool bSave = true;
 	
 	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Streaming Level Save")
 	bool bTickCheckCell = false;
