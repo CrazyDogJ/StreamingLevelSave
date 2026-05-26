@@ -318,26 +318,18 @@ void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool b
 void UStreamingLevelSaveSubsystem::LoadLevelInternal(const ULevel* Level)
 {
 	const auto StreamingLevelName = LIBRARY::GetLevelName(Level);
-	// Async load data from hard drive and then restore actor's stage.
-	UE::Tasks::Launch(UE_SOURCE_LOCATION,
-	[this, StreamingLevelName, Level]()
+
+	// Write to temp data. (No more async)
+	const auto Ptr = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level));
+	LoadTempData(StreamingLevelName, *Ptr);
+	const auto LoadedData = *Ptr;
+
+	if (IsValid(Level))
 	{
-		// Write to temp data.
-		const auto Ptr = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level));
-		LoadTempData(StreamingLevelName, *Ptr);
-		const auto LoadedData = *Ptr;
-		
-		// Main thread task.
-		AsyncTask(ENamedThreads::GameThread, [LoadedData, Level, this]()
-		{
-			if (IsValid(Level))
-			{
-				FStreamingLevelSaveData GameLoadedData = LoadedData;
-				RestorePersistentActors(Level, &GameLoadedData);
-				RestoreRuntimeActors(&GameLoadedData);
-			}
-		});
-	});
+		FStreamingLevelSaveData GameLoadedData = LoadedData;
+		RestorePersistentActors(Level, &GameLoadedData);
+		RestoreRuntimeActors(&GameLoadedData);
+	}
 }
 
 void UStreamingLevelSaveSubsystem::StoreObjectUnsafe(UObject* Object, FInstancedStruct& SaveData)
