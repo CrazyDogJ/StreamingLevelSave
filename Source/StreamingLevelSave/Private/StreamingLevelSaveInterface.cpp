@@ -7,24 +7,19 @@
 
 FGuid IStreamingLevelSaveInterface::GetIdentityGuid_Implementation() const
 {
-	const auto Object = _getUObject();
-	return UStreamingLevelSaveLibrary::GetIdentityGuidInternal(Object);
+	return FGuid();
 }
 
 FInstancedStruct IStreamingLevelSaveInterface::GetSaveData_Implementation()
 {
-	const auto Object = _getUObject();
-	return UStreamingLevelSaveLibrary::GetSaveDataInternal(Object);
+	return FInstancedStruct();
 }
 
 void IStreamingLevelSaveInterface::LoadSaveData_Implementation(const FInstancedStruct& SaveData)
 {
-	const auto Object = _getUObject();
-	UStreamingLevelSaveLibrary::LoadSaveDataInternal(Object, SaveData);
 }
 
 ULevel* IStreamingLevelSaveInterface::GetAssociateLevel_Implementation()
 {
-	const auto Object = _getUObject();
-	return UStreamingLevelSaveLibrary::GetAssociateLevelInternal(Object);
+	return nullptr;
 }
