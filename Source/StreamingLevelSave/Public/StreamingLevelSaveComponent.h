@@ -19,10 +19,10 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Streaming Level Save")
 	bool bSave = true;
 	
-	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Streaming Level Save")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Streaming Level Save")
 	bool bTickCheckCell = false;
 
-	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "Streaming Level Save")
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Streaming Level Save")
 	float VelocityThreshold = 0.1f;
 
 protected:
