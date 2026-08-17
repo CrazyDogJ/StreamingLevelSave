@@ -63,9 +63,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Streaming Level Save|Save Game")
 	static bool IsDirectoryExistInSaveGame(FString DirectoryName);
 
-	UFUNCTION(BlueprintCallable)
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save")
 	static bool DeleteSaveGame(FString SaveGameName);
 
-	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save Subsystem")
+	UFUNCTION(BlueprintCallable, Category = "Streaming Level Save")
 	static bool GetLevelActorData(AActor* Actor, FStreamingLevelActorData& OutData);
+	
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save")
+	static TSoftObjectPtr<UWorld> GetProjectDefaultWorld();
+	
+	UFUNCTION(BlueprintPure, Category = "Streaming Level Save")
+	static FString GetProjectDefaultWorldURL();
 };

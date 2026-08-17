@@ -213,3 +213,18 @@ bool UStreamingLevelSaveLibrary::GetLevelActorData(AActor* Actor, FStreamingLeve
 
 	return false;
 }
+
+TSoftObjectPtr<UWorld> UStreamingLevelSaveLibrary::GetProjectDefaultWorld()
+{
+	return GetDefault<UStreamingLevelSaveSettings>()->DefaultOpenWorldLevel;
+}
+
+FString UStreamingLevelSaveLibrary::GetProjectDefaultWorldURL()
+{
+	if (const auto World = GetProjectDefaultWorld())
+	{
+		return World.GetAssetName();
+	}
+	
+	return "";
+}

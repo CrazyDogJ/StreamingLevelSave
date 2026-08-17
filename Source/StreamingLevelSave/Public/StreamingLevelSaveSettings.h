@@ -36,4 +36,7 @@ public:
 	
 	UPROPERTY(Config, EditAnywhere)
 	FString TempSaveFilesFolder = "TempLevels";
+	
+	UPROPERTY(Config, EditAnywhere)
+	TSoftObjectPtr<UWorld> DefaultOpenWorldLevel = nullptr;
 };
