@@ -206,6 +206,11 @@ void UStreamingLevelSaveSubsystem::Deinitialize()
 
 void UStreamingLevelSaveSubsystem::Tick(float DeltaTime)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
 	// Stop runtime actors to get out of bound.
 	for (const auto Itr : RuntimeActorComponents)
 	{
@@ -236,6 +241,21 @@ void UStreamingLevelSaveSubsystem::Tick(float DeltaTime)
 TStatId UStreamingLevelSaveSubsystem::GetStatId() const
 {
 	RETURN_QUICK_DECLARE_CYCLE_STAT(UStreamingLevelSaveSubsystem, STATGROUP_Tickables);
+}
+
+bool UStreamingLevelSaveSubsystem::HasAuthority() const
+{
+	if (!GetWorld())
+	{
+		return false;
+	}
+	
+	if (GetWorld()->GetAuthGameMode())
+	{
+		return true;
+	}
+	
+	return false;
 }
 
 bool UStreamingLevelSaveSubsystem::SaveTempData(const FString& LevelStreamingName, const FStreamingLevelSaveData& SaveData)
@@ -271,6 +291,11 @@ bool UStreamingLevelSaveSubsystem::LoadTempData(const FString& LevelStreamingNam
 
 void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool bOnlyCollect, bool bAsync)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
 	const auto StreamingLevelName = LIBRARY::GetLevelName(Level);
 	// Dont save level in ignore list.
 	if (const auto Settings = GetDefault<UStreamingLevelSaveSettings>())
@@ -317,18 +342,21 @@ void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool b
 
 void UStreamingLevelSaveSubsystem::LoadLevelInternal(const ULevel* Level)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
 	const auto StreamingLevelName = LIBRARY::GetLevelName(Level);
 
 	// Write to temp data. (No more async)
 	const auto Ptr = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level));
 	LoadTempData(StreamingLevelName, *Ptr);
-	const auto LoadedData = *Ptr;
 
 	if (IsValid(Level))
 	{
-		FStreamingLevelSaveData GameLoadedData = LoadedData;
-		RestorePersistentActors(Level, &GameLoadedData);
-		RestoreRuntimeActors(&GameLoadedData);
+		RestorePersistentActors(Level, Ptr);
+		RestoreRuntimeActors(Ptr);
 	}
 }
 
@@ -507,6 +535,9 @@ void UStreamingLevelSaveSubsystem::RestoreRuntimeActors(FStreamingLevelSaveData*
 			RestoreActorComponents(NewActor, Itr.Components);
 		}
 	}
+	
+	// Empty runtime actors when spawned.
+	SaveData->RuntimeActorsSaveDatas.Empty();
 }
 
 void UStreamingLevelSaveSubsystem::ClearAllTempFiles()
@@ -562,6 +593,11 @@ void UStreamingLevelSaveSubsystem::AddDestroyedLevelActor(const FStreamingLevelA
 
 void UStreamingLevelSaveSubsystem::OnLevelActorDestroyed(AActor* DestroyedActor)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+	
 	if (const ULevel* Level = INTERFACE::Execute_GetAssociateLevel(DestroyedActor))
 	{
 		if (const auto Found = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level)))

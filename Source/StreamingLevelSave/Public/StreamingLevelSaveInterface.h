@@ -20,6 +20,7 @@ struct STREAMINGLEVELSAVE_API FObjectDefaultSaveData
 		{
 			FMemoryWriter MemoryWriter(Data, true);
 			FObjectAndNameAsStringProxyArchive Ar(MemoryWriter, false);
+			Ar.ArIsSaveGame = true;
 			ObjectToSave->Serialize(Ar);
 		}
 	}
@@ -30,6 +31,7 @@ struct STREAMINGLEVELSAVE_API FObjectDefaultSaveData
 		{
 			FMemoryReader MemoryReader(Data, true);
 			FObjectAndNameAsStringProxyArchive Ar(MemoryReader, true);
+			Ar.ArIsSaveGame = true;
 			ObjectToLoad->Serialize(Ar);
 		}
 	}

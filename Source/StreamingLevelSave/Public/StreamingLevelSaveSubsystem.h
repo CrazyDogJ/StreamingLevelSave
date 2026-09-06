@@ -121,6 +121,8 @@ protected:
 	// Tickable Object Interface
 	
 private:
+	bool HasAuthority() const;
+	
 	// Save temp data.
 	static bool SaveTempData(const FString& LevelStreamingName, const FStreamingLevelSaveData& SaveData);
 	// Load temp data.
