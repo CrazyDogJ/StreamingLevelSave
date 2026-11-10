@@ -58,10 +58,12 @@ FString UStreamingLevelSaveLibrary::GetLevelName(const ULevel* Level)
 
 bool UStreamingLevelSaveLibrary::IsRuntimeObject(const UObject* InObject)
 {
+	// 修复：空对象或已脱离所有者的组件没有运行时分类。
+	if (!IsValid(InObject)) return false;
 	// If comp using actor's result.
 	if (const auto Comp = Cast<UActorComponent>(InObject))
 	{
-		return !Comp->GetOwner()->HasAnyFlags(RF_WasLoaded);
+		return Comp->GetOwner() && !Comp->GetOwner()->HasAnyFlags(RF_WasLoaded);
 	}
 	
 	return !InObject->HasAnyFlags(RF_WasLoaded);

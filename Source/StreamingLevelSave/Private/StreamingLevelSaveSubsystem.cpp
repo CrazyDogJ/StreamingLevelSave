@@ -1,6 +1,7 @@
 ﻿#include "StreamingLevelSaveSubsystem.h"
 
 #include "ImageUtils.h"
+#include "Engine/GameViewportClient.h"
 #include "StreamingLevelSaveComponent.h"
 #include "StreamingLevelSaveInterface.h"
 #include "StreamingLevelSaveLibrary.h"
@@ -36,8 +37,15 @@ FStreamingLevelSaveData* UStreamingLevelSaveSubsystem::GetOrAddTempCellSaveData(
 
 void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, bool bSaving, bool bMultiplay, bool bLan)
 {
-	if (!IsSaving() && !IsLoading())
+	// 修复：未配置存档序列或退出后，不进入蓝图回调。
+	if (IsValid(SaveLoadSequence) && !SaveLoadSequence->bProgressing)
 	{
+		SaveLoadSequence->SaveFileName = SaveFileName;
+		SaveLoadSequence->bSaving = bSaving;
+		SaveLoadSequence->bProgressing = true;
+		SaveLoadSequence->bMultiplay = bMultiplay;
+		SaveLoadSequence->bLan = bLan;
+		// 修复：广播前占用序列，监听器重入时不会再次启动同一存档操作。
 		if (bSaving)
 		{
 			OnPreSave.Broadcast();
@@ -46,12 +54,7 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, b
 		{
 			OnPreLoad.Broadcast();
 		}
-		
-		SaveLoadSequence->SaveFileName = SaveFileName;
-		SaveLoadSequence->bSaving = bSaving;
-		SaveLoadSequence->bProgressing = true;
-		SaveLoadSequence->bMultiplay = bMultiplay;
-		SaveLoadSequence->bLan = bLan;
+		if (!IsValid(SaveLoadSequence) || !SaveLoadSequence->bProgressing) return;
 		
 		// Call level saving and loading at begin.
 		if (bSaving)
@@ -82,7 +85,7 @@ void UStreamingLevelSaveSubsystem::BeginSaveLoadSequence(FString SaveFileName, b
 
 void UStreamingLevelSaveSubsystem::EndSaveLoadSequence()
 {
-	if (SaveLoadSequence)
+	if (SaveLoadSequence && SaveLoadSequence->bProgressing)
 	{
 		SaveLoadSequence->bProgressing = false;
 		
@@ -104,12 +107,12 @@ bool UStreamingLevelSaveSubsystem::IsAllowSaving() const
 		return SaveLoadSequence->IsAllowSaving();
 	}
 
-	return true;
+	return false;
 }
 
 bool UStreamingLevelSaveSubsystem::IsSaving() const
 {
-	if (SaveLoadSequence->bProgressing && SaveLoadSequence->bSaving)
+	if (SaveLoadSequence && SaveLoadSequence->bProgressing && SaveLoadSequence->bSaving)
 	{
 		return true;
 	}
@@ -119,7 +122,7 @@ bool UStreamingLevelSaveSubsystem::IsSaving() const
 
 bool UStreamingLevelSaveSubsystem::IsLoading() const
 {
-	if (SaveLoadSequence->bProgressing && !SaveLoadSequence->bSaving)
+	if (SaveLoadSequence && SaveLoadSequence->bProgressing && !SaveLoadSequence->bSaving)
 	{
 		return true;
 	}
@@ -129,8 +132,10 @@ bool UStreamingLevelSaveSubsystem::IsLoading() const
 
 TArray<FString> UStreamingLevelSaveSubsystem::CollectTempSaveFiles()
 {
-	// Save levels.
-	for (const auto Level : VisibleStreamingLevels)
+	// 修复：收集可触发蓝图并改变可见关卡集合，使用快照遍历。
+	FinishPendingWrite();
+	const auto Levels = VisibleStreamingLevels.Array();
+	for (const auto Level : Levels)
 	{
 		// TODO : Not async here, may cause performance issue.
 		SaveLevelInternal(Level, true, false);
@@ -181,23 +186,32 @@ void UStreamingLevelSaveSubsystem::Initialize(FSubsystemCollectionBase& Collecti
 	}
 
 	const auto Class = GetDefault<UStreamingLevelSaveSettings>()->GetDefaultSaveSequenceClass();
-	SaveLoadSequence = NewObject<UStreamingLevelSaveSequence>(this, Class);
-	SaveLoadSequence->SetSubsystem(this);
+	// 修复：缺失或抽象的序列类无法实例化。
+	if (Class && !Class->HasAnyClassFlags(CLASS_Abstract))
+	{
+		SaveLoadSequence = NewObject<UStreamingLevelSaveSequence>(this, Class);
+		SaveLoadSequence->SetSubsystem(this);
+	}
 }
 
 void UStreamingLevelSaveSubsystem::Deinitialize()
 {
-	Super::Deinitialize();
+	// 修复：停止接收世界事件并收尾后台写入，再释放子系统拥有的对象。
+	RemoveDelegates();
+	UGameViewportClient::OnScreenshotCaptured().RemoveAll(this);
+	FinishPendingWrite();
 
 	if (SaveLoadSequence)
 	{
 		SaveLoadSequence->CleanUp();
-		SaveLoadSequence->ConditionalBeginDestroy();
+		SaveLoadSequence->SetSubsystem(nullptr);
 		SaveLoadSequence = nullptr;
 	}
 	
-	RemoveDelegates();
-	
+	VisibleStreamingLevels.Reset();
+	RuntimeActorComponents.Reset();
+	TempSaveDatas.Reset();
+	Super::Deinitialize();
 	if (SETTINGS::GetClearTempFilesOnEndGame())
 	{
 		ClearAllTempFiles();
@@ -214,7 +228,7 @@ void UStreamingLevelSaveSubsystem::Tick(float DeltaTime)
 	// Stop runtime actors to get out of bound.
 	for (const auto Itr : RuntimeActorComponents)
 	{
-		if (Itr->bTickCheckCell)
+		if (IsValid(Itr) && IsValid(Itr->GetOwner()) && Itr->GetOwner()->GetRootComponent() && Itr->bTickCheckCell)
 		{
 			const auto Actor = Itr->GetOwner();
 			const auto Velocity = Actor->GetVelocity();
@@ -224,7 +238,7 @@ void UStreamingLevelSaveSubsystem::Tick(float DeltaTime)
 				for (const auto Level : VisibleStreamingLevels)
 				{
 					const auto OwnerActor = Itr->GetOwner();
-					if (const auto Cell = Level->GetWorldPartitionRuntimeCell())
+					if (const auto Cell = IsValid(Level) ? Level->GetWorldPartitionRuntimeCell() : nullptr)
 					{
 						// If actor is trying to move outside of bound, we immediately stop that actor.
 						if (!Cell->GetCellBounds().IsInsideXY(OwnerActor->GetActorLocation() + Velocity))
@@ -258,19 +272,42 @@ bool UStreamingLevelSaveSubsystem::HasAuthority() const
 	return false;
 }
 
-bool UStreamingLevelSaveSubsystem::SaveTempData(const FString& LevelStreamingName, const FStreamingLevelSaveData& SaveData)
+void UStreamingLevelSaveSubsystem::FinishPendingWrite()
 {
-	if (LevelStreamingName.IsEmpty()) return false;
+	if (PendingWrite.IsValid())
+	{
+		PendingWrite.Wait();
+		PendingWrite = UE::Tasks::FTask();
+	}
+}
 
+void UStreamingLevelSaveSubsystem::SaveTempData(const FString& LevelStreamingName, FStreamingLevelSaveData& SaveData, bool bAsync)
+{
+	FinishPendingWrite();
 	TArray<uint8> Data;
-	FMemoryWriter MemoryWriter(Data, true);
-	FObjectAndNameAsStringProxyArchive WriterProxy(MemoryWriter, /*bInLoadIfFindFails*/false);
-	FStreamingLevelSaveData::StaticStruct()->SerializeBin(WriterProxy, &const_cast<FStreamingLevelSaveData&>(SaveData));
-	
-	const FString FilePath = LIBRARY::MakeTempFilePath(LevelStreamingName);
-	const bool bSuccess = FFileHelper::SaveArrayToFile(Data, *FilePath);
+	{
+		// 修复：FInstancedStruct 可能包含 UObject，只在游戏线程进行反射序列化。
+		FMemoryWriter MemoryWriter(Data, true);
+		FObjectAndNameAsStringProxyArchive WriterProxy(MemoryWriter, false);
+		FStreamingLevelSaveData::StaticStruct()->SerializeBin(WriterProxy, &SaveData);
+		if (WriterProxy.IsError()) return;
+	}
 
-	return bSuccess;
+	auto Write = [FilePath = LIBRARY::MakeTempFilePath(LevelStreamingName), Bytes = MoveTemp(Data)]()
+	{
+		if (!FFileHelper::SaveArrayToFile(Bytes, *FilePath))
+		{
+			UE_LOG(LogTemp, Error, TEXT("StreamingLevelSave: could not write %s"), *FilePath);
+		}
+	};
+	if (bAsync)
+	{
+		PendingWrite = UE::Tasks::Launch(UE_SOURCE_LOCATION, MoveTemp(Write));
+	}
+	else
+	{
+		Write();
+	}
 }
 
 bool UStreamingLevelSaveSubsystem::LoadTempData(const FString& LevelStreamingName, FStreamingLevelSaveData& SaveData)
@@ -296,6 +333,7 @@ void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool b
 		return;
 	}
 	
+	if (!IsValid(Level)) return;
 	const auto StreamingLevelName = LIBRARY::GetLevelName(Level);
 	// Dont save level in ignore list.
 	if (const auto Settings = GetDefault<UStreamingLevelSaveSettings>())
@@ -306,37 +344,25 @@ void UStreamingLevelSaveSubsystem::SaveLevelInternal(const ULevel* Level, bool b
 		}
 	}
 	
-	if (const auto Found = GetOrAddTempCellSaveData(StreamingLevelName))
+	if (StreamingLevelName.IsEmpty()) return;
+
+	// 修复：脚本回调可扩容 TempSaveDatas，不能跨回调持有 TMap 元素地址。
+	FStreamingLevelSaveData Snapshot = TempSaveDatas.FindRef(StreamingLevelName);
+	Snapshot.RuntimeActorsSaveDatas.Reset();
+	StorePersistentActors(Level, &Snapshot, bOnlyCollect);
+	StoreRuntimeActors(Level, &Snapshot, bOnlyCollect);
+	if (const auto* Current = TempSaveDatas.Find(StreamingLevelName))
 	{
-		// Capture datas in game thread.
-		StorePersistentActors(Level, Found, bOnlyCollect);
-		StoreRuntimeActors(Level, Found, bOnlyCollect);
-		// Async save data to hard drive.
-		if (bAsync)
-		{
-			// Async
-			auto CachedData = *Found;
-			UE::Tasks::Launch(UE_SOURCE_LOCATION, [this, Level, CachedData, StreamingLevelName, bOnlyCollect]()
-			{
-				SaveTempData(StreamingLevelName, CachedData);
-				if (!bOnlyCollect)
-				{
-					AsyncTask(ENamedThreads::GameThread, [StreamingLevelName, Level, this]()
-					{
-						TempSaveDatas.Remove(StreamingLevelName);
-					});
-				}
-			});
-		}
-		else
-		{
-			// Sync
-			SaveTempData(StreamingLevelName, *Found);
-			if (!bOnlyCollect)
-			{
-				TempSaveDatas.Remove(StreamingLevelName);
-			}
-		}
+		for (const FGuid& Id : Current->DestroyedActors) Snapshot.DestroyedActors.AddUnique(Id);
+	}
+	SaveTempData(StreamingLevelName, Snapshot, bAsync);
+	if (bOnlyCollect)
+	{
+		TempSaveDatas.Add(StreamingLevelName, MoveTemp(Snapshot));
+	}
+	else
+	{
+		TempSaveDatas.Remove(StreamingLevelName);
 	}
 }
 
@@ -347,31 +373,34 @@ void UStreamingLevelSaveSubsystem::LoadLevelInternal(const ULevel* Level)
 		return;
 	}
 	
+	if (!IsValid(Level)) return;
 	const auto StreamingLevelName = LIBRARY::GetLevelName(Level);
 
-	// Write to temp data. (No more async)
-	const auto Ptr = GetOrAddTempCellSaveData(LIBRARY::GetLevelName(Level));
-	LoadTempData(StreamingLevelName, *Ptr);
-
-	if (IsValid(Level))
-	{
-		RestorePersistentActors(Level, Ptr);
-		RestoreRuntimeActors(Ptr);
-	}
+	// 修复：关卡快速重新加载时等旧写入落盘，并让恢复回调使用稳定快照。
+	if (StreamingLevelName.IsEmpty()) return;
+	FinishPendingWrite();
+	FStreamingLevelSaveData Snapshot = TempSaveDatas.FindRef(StreamingLevelName);
+	LoadTempData(StreamingLevelName, Snapshot);
+	auto& Cached = TempSaveDatas.Add(StreamingLevelName, Snapshot);
+	Cached.RuntimeActorsSaveDatas.Reset();
+	RestorePersistentActors(Level, &Snapshot);
+	RestoreRuntimeActors(&Snapshot);
 }
 
 void UStreamingLevelSaveSubsystem::StoreObjectUnsafe(UObject* Object, FInstancedStruct& SaveData)
 {
-	SaveData = INTERFACE::Execute_GetSaveData(Object);
+	// 修复：带注册组件的运行时 Actor 不一定实现存档接口。
+	if (IsValid(Object) && Object->Implements<UStreamingLevelSaveInterface>()) SaveData = INTERFACE::Execute_GetSaveData(Object);
 }
 
 void UStreamingLevelSaveSubsystem::RestoreObjectUnsafe(UObject* Object, const FInstancedStruct& SaveData)
 {
-	INTERFACE::Execute_LoadSaveData(Object, SaveData);
+	if (IsValid(Object) && Object->Implements<UStreamingLevelSaveInterface>()) INTERFACE::Execute_LoadSaveData(Object, SaveData);
 }
 
 void UStreamingLevelSaveSubsystem::StoreActorComponents(const AActor* Actor, TMap<FGuid, FInstancedStruct>& Mappings)
 {
+	if (!IsValid(Actor)) return;
 	TInlineComponentArray<UActorComponent*> Components;
 	Actor->GetComponents(Components);
 
@@ -389,6 +418,7 @@ void UStreamingLevelSaveSubsystem::StoreActorComponents(const AActor* Actor, TMa
 void UStreamingLevelSaveSubsystem::RestoreActorComponents(const AActor* Actor,
 	const TMap<FGuid, FInstancedStruct>& Mappings)
 {
+	if (!IsValid(Actor)) return;
 	TInlineComponentArray<UActorComponent*> Components;
 	Actor->GetComponents(Components);
 
@@ -411,7 +441,9 @@ void UStreamingLevelSaveSubsystem::StorePersistentActors(const ULevel* Level, FS
 		return;
 	}
 
-	for (auto Itr : Level->Actors)
+	// 修复：加载、销毁或保存脚本可改变关卡 Actor 数组。
+	const auto Actors = Level->Actors;
+	for (auto Itr : Actors)
 	{
 		if (!IsValid(Itr)) continue;
 		if (Itr->HasAnyFlags(RF_ClassDefaultObject)) continue;
@@ -438,7 +470,9 @@ void UStreamingLevelSaveSubsystem::RestorePersistentActors(const ULevel* Level, 
 		return;
 	}
 	
-	for (auto Itr : Level->Actors)
+	// 修复：加载、销毁或保存脚本可改变关卡 Actor 数组。
+	const auto Actors = Level->Actors;
+	for (auto Itr : Actors)
 	{
 		if (!IsValid(Itr)) continue;
 		if (Itr->HasAnyFlags(RF_ClassDefaultObject)) continue;
@@ -451,6 +485,7 @@ void UStreamingLevelSaveSubsystem::RestorePersistentActors(const ULevel* Level, 
 			if (SaveData->DestroyedActors.Find(Id) >= 0)
 			{
 				Itr->Destroy(true);
+				continue;
 			}
 			else
 			{
@@ -464,7 +499,8 @@ void UStreamingLevelSaveSubsystem::RestorePersistentActors(const ULevel* Level, 
 					INTERFACE::Execute_PostLoadSaveData(Itr);
 				}
 				
-				Itr->OnDestroyed.AddDynamic(this, &ThisClass::OnLevelActorDestroyed);
+				if (!IsValid(Itr)) continue;
+				Itr->OnDestroyed.AddUniqueDynamic(this, &ThisClass::OnLevelActorDestroyed);
 			}
 		}
 		RestoreActorComponents(Itr, SaveData->SaveDatas);
@@ -475,9 +511,11 @@ void UStreamingLevelSaveSubsystem::StoreRuntimeActors(const ULevel* InLevel,
 	FStreamingLevelSaveData* SaveData, bool bCollectOnly)
 {
 	TArray<UStreamingLevelSaveComponent*> Components;
-	for (const auto Itr : RuntimeActorComponents)
+	const auto Registered = RuntimeActorComponents.Array();
+	for (const auto Itr : Registered)
 	{
 		// Store runtime actor
+		if (!IsValid(Itr) || !IsValid(Itr->GetOwner())) continue;
 		const auto OwnerActor = Itr->GetOwner();
 		const auto Cell = InLevel->GetWorldPartitionRuntimeCell();
 		if (Cell && Cell->GetCellBounds().IsInsideXY(OwnerActor->GetActorLocation()))
@@ -485,7 +523,7 @@ void UStreamingLevelSaveSubsystem::StoreRuntimeActors(const ULevel* InLevel,
 			if (Itr->bSave)
 			{
 				FStreamingLevelSaveRuntimeData RuntimeData;
-				StoreRuntimeActor(Itr->GetOwner(), RuntimeData);
+				StoreRuntimeActor(OwnerActor, RuntimeData);
 				SaveData->RuntimeActorsSaveDatas.Add(RuntimeData);
 				Components.Add(Itr);
 			}
@@ -501,7 +539,7 @@ void UStreamingLevelSaveSubsystem::StoreRuntimeActors(const ULevel* InLevel,
 	{
 		for (const auto Itr : Components)
 		{
-			Itr->GetOwner()->Destroy(true);
+			if (IsValid(Itr) && IsValid(Itr->GetOwner())) Itr->GetOwner()->Destroy(true);
 		}
 	}
 }
@@ -509,8 +547,11 @@ void UStreamingLevelSaveSubsystem::StoreRuntimeActors(const ULevel* InLevel,
 void UStreamingLevelSaveSubsystem::StoreRuntimeActor(AActor* Actor,
 	FStreamingLevelSaveRuntimeData& RuntimeActorData)
 {
+	// 修复：调用者可能传入空 Actor，蓝图序列化也可能销毁它。
+	if (!IsValid(Actor)) return;
 	FInstancedStruct SaveDataStruct;
 	StoreObjectUnsafe(Actor, SaveDataStruct);
+	if (!IsValid(Actor)) return;
 	RuntimeActorData.AdditionalData = SaveDataStruct;
 	RuntimeActorData.ActorClass = Actor->GetClass();
 	RuntimeActorData.ActorTransform = Actor->GetActorTransform();
@@ -542,12 +583,15 @@ void UStreamingLevelSaveSubsystem::RestoreRuntimeActors(FStreamingLevelSaveData*
 
 void UStreamingLevelSaveSubsystem::ClearAllTempFiles()
 {
+	FinishPendingWrite();
 	TempSaveDatas.Empty();
 	IFileManager::Get().DeleteDirectory(*LIBRARY::GetTempFileFolder(), true, true);
 }
 
 void UStreamingLevelSaveSubsystem::AssignDelegates()
 {
+	// 修复：蓝图可重复调用绑定，确保每个世界事件仅处理一次。
+	RemoveDelegates();
 	FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &ThisClass::PostLoadMapWithWorld);
 	FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(this, &ThisClass::PreLoadMapWithContext);
 	
@@ -567,8 +611,10 @@ void UStreamingLevelSaveSubsystem::RemoveDelegates()
 void UStreamingLevelSaveSubsystem::TakeScreenshot()
 {
 	// Memory-based screenshot request
-	UGameViewportClient* ViewportClient = UGameplayStatics::GetPlayerController(GetWorld(), 0)->GetLocalPlayer()->ViewportClient;
-	ViewportClient->OnScreenshotCaptured().AddUObject(this, &ThisClass::OnScreenshotCaptured);
+	// 修复：专服或世界切换时没有本地视口，截图委托为静态共享事件。
+	if (!GetGameInstance() || !GetGameInstance()->GetGameViewportClient()) return;
+	UGameViewportClient::OnScreenshotCaptured().RemoveAll(this);
+	UGameViewportClient::OnScreenshotCaptured().AddUObject(this, &ThisClass::OnScreenshotCaptured);
 	FScreenshotRequest::RequestScreenshot(false);
 }
 
@@ -609,8 +655,7 @@ void UStreamingLevelSaveSubsystem::OnLevelActorDestroyed(AActor* DestroyedActor)
 
 void UStreamingLevelSaveSubsystem::OnScreenshotCaptured(int32 Width, int32 Height, const TArray<FColor>& Colors)
 {
-	const auto ViewportClient = UGameplayStatics::GetPlayerController(GetWorld(), 0)->GetLocalPlayer()->ViewportClient;
-	ViewportClient->OnScreenshotCaptured().RemoveAll(this);
+	UGameViewportClient::OnScreenshotCaptured().RemoveAll(this);
 	
 	// Convert down to PNG
 	TArray<uint8> PngData;
@@ -621,6 +666,8 @@ void UStreamingLevelSaveSubsystem::OnScreenshotCaptured(int32 Width, int32 Heigh
 
 void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 {
+	// 修复：全局世界事件也会收到加载失败或其他 PIE 实例的通知。
+	if (!World || World->GetGameInstance() != GetGameInstance() || !World->GetCurrentLevel()) return;
 	// Clear temp files when load these maps/
 	if (GetDefault<UStreamingLevelSaveSettings>()->PostLoadMapClearTemp.Contains(World->GetCurrentLevel()->GetName()))
 	{
@@ -636,12 +683,13 @@ void UStreamingLevelSaveSubsystem::PostLoadMapWithWorld(UWorld* World)
 
 void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& String)
 {
+	if (!WorldContext.World() || WorldContext.World()->GetGameInstance() != GetGameInstance()) return;
 	if (!WorldContext.World()->GetWorldPartition() && WorldContext.World()->GetNetMode() != NM_Client)
 	{
+		VisibleStreamingLevels.Remove(WorldContext.World()->PersistentLevel);
 		// Do not save files because now is loading files and opening new level.
 		if (SaveLoadSequence && !SaveLoadSequence->bProgressing)
 		{
-			VisibleStreamingLevels.Remove(WorldContext.World()->PersistentLevel);
 			SaveLevelInternal(WorldContext.World()->PersistentLevel, false, true);
 		}
 	}
@@ -649,7 +697,7 @@ void UStreamingLevelSaveSubsystem::PreLoadMapWithContext(const FWorldContext& Wo
 
 void UStreamingLevelSaveSubsystem::LevelAddedToWorld(ULevel* Level, UWorld* World)
 {
-	if (World && World->GetNetMode() != NM_Client)
+	if (World && World->GetGameInstance() == GetGameInstance() && Level && World->GetNetMode() != NM_Client)
 	{
 		VisibleStreamingLevels.Add(Level);
 		LoadLevelInternal(Level);
@@ -658,12 +706,13 @@ void UStreamingLevelSaveSubsystem::LevelAddedToWorld(ULevel* Level, UWorld* Worl
 
 void UStreamingLevelSaveSubsystem::PreLevelRemovedFromWorld(ULevel* Level, UWorld* World)
 {
-	if (World && World->GetNetMode() != NM_Client)
+	if (World && World->GetGameInstance() == GetGameInstance() && Level && World->GetNetMode() != NM_Client)
 	{
+		// 修复：存档流程暂停写盘期间，仍须释放卸载关卡的强引用。
+		VisibleStreamingLevels.Remove(Level);
 		// Do not save files because now is loading files and opening new level.
 		if (SaveLoadSequence && !SaveLoadSequence->bProgressing)
 		{
-			VisibleStreamingLevels.Remove(Level);
 			SaveLevelInternal(Level, false, true);
 		}
 	}

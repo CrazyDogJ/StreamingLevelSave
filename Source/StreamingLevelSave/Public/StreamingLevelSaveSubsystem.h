@@ -4,6 +4,7 @@
 #include "StreamingLevelSaveComponent.h"
 #include "StreamingLevelSaveStructs.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Tasks/Task.h"
 #include "StreamingLevelSaveSubsystem.generated.h"
 
 class UStreamingLevelSaveSequence;
@@ -124,7 +125,10 @@ private:
 	bool HasAuthority() const;
 	
 	// Save temp data.
-	static bool SaveTempData(const FString& LevelStreamingName, const FStreamingLevelSaveData& SaveData);
+	// 修复：后台任务只持有序列化字节，读取、清理和退出前等待写入结束。
+	UE::Tasks::FTask PendingWrite;
+	void FinishPendingWrite();
+	void SaveTempData(const FString& LevelStreamingName, FStreamingLevelSaveData& SaveData, bool bAsync);
 	// Load temp data.
 	static bool LoadTempData(const FString& LevelStreamingName, FStreamingLevelSaveData& SaveData);
 

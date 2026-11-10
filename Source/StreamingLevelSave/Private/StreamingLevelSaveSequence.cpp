@@ -8,7 +8,8 @@
 
 UStreamingLevelSaveSubsystem* UStreamingLevelSaveSequence::GetSubsystem() const
 {
-	return GetWorld()->GetGameInstance()->GetSubsystem<UStreamingLevelSaveSubsystem>();
+	// 修复：使用初始化时绑定的子系统，切图期间世界可能为空。
+	return Subsystem;
 }
 
 FString UStreamingLevelSaveSequence::GetSaveSlotName(FString SlotName) const
@@ -24,7 +25,7 @@ void UStreamingLevelSaveSequence::DeleteCurrentSaveFiles()
 void UStreamingLevelSaveSequence::SequenceFinish()
 {
 	CleanUp();
-	GetSubsystem()->EndSaveLoadSequence();
+	if (IsValid(Subsystem) && Subsystem->SaveLoadSequence == this) Subsystem->EndSaveLoadSequence();
 }
 
 void UStreamingLevelSaveSequence::CopySaveFilesToTempPath() const
@@ -84,7 +85,8 @@ void UStreamingLevelSaveSequence::CopyTempFilesToSavePath() const
 	}
 
 	// Copy temp files to save folder.
-	const auto TempFiles = GetSubsystem()->CollectTempSaveFiles();
+	if (!IsValid(Subsystem)) return;
+	const auto TempFiles = Subsystem->CollectTempSaveFiles();
 	for (const auto FileName : TempFiles)
 	{
 		PlatformFile.CopyFile(*(SaveFolder + "/" + FileName), *(UStreamingLevelSaveLibrary::GetTempFileDir() + FileName));

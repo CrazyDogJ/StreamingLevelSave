@@ -15,14 +15,15 @@ UStreamingLevelSaveComponent::UStreamingLevelSaveComponent()
 
 SUBSYSTEM* UStreamingLevelSaveComponent::GetSubsystem() const
 {
-	return GetWorld()->GetGameInstance()->GetSubsystem<SUBSYSTEM>();
+	// 修复：退出世界期间不再假定 GameInstance 存在。
+	return UGameInstance::GetSubsystem<SUBSYSTEM>(GetWorld() ? GetWorld()->GetGameInstance() : nullptr);
 }
 
 void UStreamingLevelSaveComponent::BeginPlay()
 {
 	if (LIBRARY::IsRuntimeObject(this) && GetOwner()->HasAuthority())
 	{
-		GetSubsystem()->RuntimeActorComponents.FindOrAdd(this);
+		if (auto* Sub = GetSubsystem()) Sub->RuntimeActorComponents.FindOrAdd(this);
 	}
 	
 	Super::BeginPlay();
@@ -32,7 +33,7 @@ void UStreamingLevelSaveComponent::EndPlay(const EEndPlayReason::Type EndPlayRea
 {
 	if (LIBRARY::IsRuntimeObject(this) && GetOwner()->HasAuthority())
 	{
-		GetSubsystem()->RuntimeActorComponents.Remove(this);
+		if (auto* Sub = GetSubsystem()) Sub->RuntimeActorComponents.Remove(this);
 	}
 	
 	Super::EndPlay(EndPlayReason);
